@@ -1,0 +1,249 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:  # 允许手动触发
+
+env:
+  IMAGE_NAME: ${{ github.repository }}-calculator
+  REGISTRY: ghcr.io  # GitHub Container Registry
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+    
+    - name: Install dependencies
+      run: |
+        pip install -r requirements.txt
+        pip install -r requirements-dev.txt
+    
+    - name: Run unit tests
+      run: |
+        python -m pytest test_app.py -v --cov=app --cov-report=xml
+    
+    - name: Upload test results
+      uses: actions/upload-artifact@v3
+      if: always()
+      with:
+        name: test-results
+        path: |
+          coverage.xml
+        retention-days: 30
+  
+  build:
+    needs: test
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v2
+    
+    - name: Log in to GitHub Container Registry
+      uses: docker/login-action@v2
+      with:
+        registry: ${{ env.REGISTRY }}
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+    
+    - name: Extract metadata for Docker
+      id: meta
+      uses: docker/metadata-action@v4
+      with:
+        images: ${{ env.REGISTRY }}/${{ github.repository }}
+        tags: |
+          type=ref,event=branch
+          type=sha,prefix={{branch}}-,format=short
+          type=raw,value=latest,enable={{is_default_branch}}
+    
+    - name: Build and push Docker image
+      uses: docker/build-push-action@v4
+      with:
+        context: .
+        push: true
+        tags: ${{ steps.meta.outputs.tags }}
+        labels: ${{ steps.meta.outputs.labels }}
+    
+    - name: Build report
+      run: |
+        echo "Image built and pushed:"
+        echo "${{ steps.meta.outputs.tags }}"
+        echo "::notice title=Build Complete::Docker image built and pushed to ${{ env.REGISTRY }}"
+  
+  deploy-staging:
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/develop' || github.event_name == 'workflow_dispatch'
+    environment: staging
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Deploy to Staging
+      uses: appleboy/ssh-action@v0.1.7
+      with:
+        host: ${{ secrets.STAGING_HOST }}
+        username: ${{ secrets.STAGING_USERNAME }}
+        key: ${{ secrets.STAGING_SSH_KEY }}
+        script: |
+          cd /opt/web-calculator
+          docker-compose pull
+          docker-compose up -d
+          echo "Staging deployment complete!"
+    
+    - name: Verify deployment
+      run: |
+        sleep 10  # 等待应用启动
+        curl -f http://${{ secrets.STAGING_HOST }}/health || exit 1
+  
+  deploy-production:
+    needs: deploy-staging
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    environment: production
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Deploy to Production (Blue-Green)
+      uses: appleboy/ssh-action@v0.1.7
+      with:
+        host: ${{ secrets.PRODUCTION_HOST }}
+        username: ${{ secrets.PRODUCTION_USERNAME }}
+        key: ${{ secrets.PRODUCTION_SSH_KEY }}
+        script: |
+          #!/bin/bash
+          set -e
+          
+          # 定义颜色
+          BLUE="blue"
+          GREEN="green"
+          
+          # 获取当前活跃颜色
+          CURRENT_COLOR=$(docker-compose ps | grep "app_" | grep "Up" | awk '{print $1}' | grep -o "blue\|green" | head -1)
+          
+          # 如果没有运行的服务，默认使用blue
+          if [ -z "$CURRENT_COLOR" ]; then
+            CURRENT_COLOR=$BLUE
+          fi
+          
+          # 确定新颜色
+          if [ "$CURRENT_COLOR" = "$BLUE" ]; then
+            NEW_COLOR=$GREEN
+          else
+            NEW_COLOR=$BLUE
+          fi
+          
+          echo "当前颜色: $CURRENT_COLOR"
+          echo "新颜色: $NEW_COLOR"
+          
+          # 拉取最新镜像
+          docker pull ${{ env.REGISTRY }}/${{ github.repository }}:main-${{ github.sha }}
+          
+          # 重新标记镜像为新颜色
+          docker tag ${{ env.REGISTRY }}/${{ github.repository }}:main-${{ github.sha }} yourusername/web-calculator:$NEW_COLOR
+          
+          # 停止当前运行的服务（如果需要）
+          docker-compose stop app_$NEW_COLOR 2>/dev/null || true
+          
+          # 启动新颜色的服务
+          docker-compose up -d app_$NEW_COLOR
+          
+          # 等待健康检查
+          echo "等待 $NEW_COLOR 服务健康..."
+          for i in {1..30}; do
+            if docker-compose exec -T app_$NEW_COLOR curl -f http://localhost:5000/health >/dev/null 2>&1; then
+              echo "$NEW_COLOR 服务健康检查通过"
+              break
+            fi
+            sleep 2
+            echo "等待... ($i/30)"
+          done
+          
+          # 更新Nginx配置
+          cp nginx/upstream_${NEW_COLOR}.conf nginx/upstream.conf
+          docker-compose exec -T proxy nginx -s reload
+          
+          echo "流量已切换到 $NEW_COLOR"
+          
+          # 停止旧颜色的服务
+          docker-compose stop app_$CURRENT_COLOR
+          
+          echo "Blue-Green部署完成！"
+          echo "当前活跃: $NEW_COLOR"
+          echo "已停止: $CURRENT_COLOR"
+    
+    - name: Verify production deployment
+      run: |
+        echo "等待部署完成..."
+        sleep 15
+        echo "验证生产环境..."
+        curl -f http://${{ secrets.PRODUCTION_HOST }}/health || exit 1
+        echo "生产环境部署验证成功！"
+  
+  rollback:
+    runs-on: ubuntu-latest
+    if: failure() && github.ref == 'refs/heads/main'
+    needs: deploy-production
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Rollback deployment
+      uses: appleboy/ssh-action@v0.1.7
+      with:
+        host: ${{ secrets.PRODUCTION_HOST }}
+        username: ${{ secrets.PRODUCTION_USERNAME }}
+        key: ${{ secrets.PRODUCTION_SSH_KEY }}
+        script: |
+          #!/bin/bash
+          set -e
+          
+          BLUE="blue"
+          GREEN="green"
+          
+          # 获取当前活跃颜色
+          CURRENT_COLOR=$(docker-compose ps | grep "app_" | grep "Up" | awk '{print $1}' | grep -o "blue\|green" | head -1)
+          
+          # 如果没有运行的服务，默认使用blue
+          if [ -z "$CURRENT_COLOR" ]; then
+            CURRENT_COLOR=$BLUE
+          fi
+          
+          # 回滚到另一个颜色
+          if [ "$CURRENT_COLOR" = "$BLUE" ]; then
+            ROLLBACK_COLOR=$GREEN
+          else
+            ROLLBACK_COLOR=$BLUE
+          fi
+          
+          echo "回滚: 从 $CURRENT_COLOR 回滚到 $ROLLBACK_COLOR"
+          
+          # 启动回滚颜色的服务
+          docker-compose start app_$ROLLBACK_COLOR
+          
+          # 等待健康检查
+          echo "等待 $ROLLBACK_COLOR 服务健康..."
+          sleep 5
+          
+          # 更新Nginx配置
+          cp nginx/upstream_${ROLLBACK_COLOR}.conf nginx/upstream.conf
+          docker-compose exec -T proxy nginx -s reload
+          
+          # 停止当前颜色
+          docker-compose stop app_$CURRENT_COLOR
+          
+          echo "回滚完成！当前活跃: $ROLLBACK_COLOR"
