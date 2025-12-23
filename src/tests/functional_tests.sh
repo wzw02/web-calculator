@@ -75,6 +75,7 @@ test_health() {
 }
 
 # 测试数学运算
+# 测试数学运算
 test_math_operations() {
     log_info "测试数学运算..."
     
@@ -85,30 +86,22 @@ test_math_operations() {
         "divide/10&2"
     )
     
-    local expected_results=(
-        '{"result":5.0,"success":true}'
-        '{"result":3.0,"success":true}'
-        '{"result":12.0,"success":true}'
-        '{"result":5.0,"success":true}'
-    )
-    
     local passed=0
     local total=${#tests[@]}
     
-    for i in "${!tests[@]}"; do
-        local endpoint="${tests[$i]}"
-        local expected="${expected_results[$i]}"
-        
+    for endpoint in "${tests[@]}"; do
         log_info "测试 $endpoint..."
         
         local response=$(curl -s "${APP_URL}/${endpoint}")
+        local status_code=$(curl -s -o /dev/null -w "%{http_code}" "${APP_URL}/${endpoint}")
         
-        # 检查成功字段
-        if echo "$response" | grep -q '"success":true'; then
+        # 检查状态码和 success 字段
+        if [ "$status_code" -eq 200 ] && echo "$response" | grep -q '"success":true'; then
             log_info "✓ $endpoint 成功"
             passed=$((passed + 1))
         else
-            log_error "✗ $endpoint 失败: $response"
+            log_error "✗ $endpoint 失败 (状态码: $status_code)"
+            log_error "响应: $response"
         fi
         
         # 格式化输出
