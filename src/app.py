@@ -4,10 +4,9 @@ Web 计算器应用 - Flask 实现
 支持基本数学运算和健康检查
 """
 
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify
 import logging
 import os
-import sys
 from typing import Dict, Any
 from datetime import datetime
 
@@ -65,9 +64,9 @@ def add(a: str, b: str) -> Dict[str, Any]:
         num_a = float(a)
         num_b = float(b)
         result = num_a + num_b
-        
+
         logger.info(f"加法运算: {num_a} + {num_b} = {result}")
-        
+
         return jsonify({
             'operation': 'addition',
             'a': num_a,
@@ -90,9 +89,9 @@ def subtract(a: str, b: str) -> Dict[str, Any]:
         num_a = float(a)
         num_b = float(b)
         result = num_a - num_b
-        
+
         logger.info(f"减法运算: {num_a} - {num_b} = {result}")
-        
+
         return jsonify({
             'operation': 'subtraction',
             'a': num_a,
@@ -115,9 +114,9 @@ def multiply(a: str, b: str) -> Dict[str, Any]:
         num_a = float(a)
         num_b = float(b)
         result = num_a * num_b
-        
+
         logger.info(f"乘法运算: {num_a} * {num_b} = {result}")
-        
+
         return jsonify({
             'operation': 'multiplication',
             'a': num_a,
@@ -139,18 +138,18 @@ def divide(a: str, b: str) -> Dict[str, Any]:
     try:
         num_a = float(a)
         num_b = float(b)
-        
+
         if num_b == 0:
             return jsonify({
                 'operation': 'division',
                 'error': '除数不能为零',
                 'success': False
             }), 400
-        
+
         result = num_a / num_b
-        
+
         logger.info(f"除法运算: {num_a} / {num_b} = {result}")
-        
+
         return jsonify({
             'operation': 'division',
             'a': num_a,
@@ -191,7 +190,7 @@ def not_found(error) -> Dict[str, str]:
 @app.errorhandler(500)
 def internal_error(error) -> Dict[str, str]:
     """500 错误处理"""
-    logger.error(f"服务器内部错误: {error}")
+    logger.error("服务器内部错误: %s", str(error))
     return jsonify({
         'error': 'Internal server error',
         'message': '服务器遇到问题，请稍后再试',
@@ -200,14 +199,12 @@ def internal_error(error) -> Dict[str, str]:
 
 
 if __name__ == '__main__':
-    from datetime import datetime
-    
-    logger.info(f"启动 Web 计算器应用...")
-    logger.info(f"环境: {ENVIRONMENT}")
-    logger.info(f"版本: {VERSION}")
-    logger.info(f"部署颜色: {DEPLOYMENT_COLOR}")
-    logger.info(f"监听端口: {PORT}")
-    
+    logger.info("启动 Web 计算器应用...")
+    logger.info("环境: %s", ENVIRONMENT)
+    logger.info("版本: %s", VERSION)
+    logger.info("部署颜色: %s", DEPLOYMENT_COLOR)
+    logger.info("监听端口: %s", PORT)
+
     app.run(
         host='0.0.0.0',
         port=PORT,
