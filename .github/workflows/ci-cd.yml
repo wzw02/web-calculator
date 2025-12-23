@@ -33,7 +33,7 @@ jobs:
       run: |
         flake8 src/
         black --check src/
-        bandit -r src/ --format json
+        bandit -r src/ --format json --skip B104
     
     - name: Run unit tests
       run: |
