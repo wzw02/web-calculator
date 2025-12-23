@@ -254,8 +254,10 @@ if __name__ == "__main__":
     logger.info("部署颜色: %s", DEPLOYMENT_COLOR)
     logger.info("监听端口: %s", PORT)
 
+    host = "127.0.0.1" if ENVIRONMENT == "production" else "0.0.0.0"
+
     app.run(
-        host="0.0.0.0",
+        host=host,
         port=PORT,
         debug=(ENVIRONMENT == "development"),
         threaded=True,
