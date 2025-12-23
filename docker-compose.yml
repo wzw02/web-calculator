@@ -1,0 +1,54 @@
+version: '3.8'
+
+services:
+  proxy:
+    image: nginx:alpine
+    container_name: web-calc-proxy
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf
+      - ./nginx/upstream.conf:/etc/nginx/conf.d/upstream.conf
+    ports:
+      - "80:80"
+    depends_on:
+      - app_blue
+      - app_green
+    networks:
+      - web-calc-network
+
+  app_blue:
+    container_name: web-calc-blue
+    build: .
+    image: ${DOCKER_USERNAME}/web-calculator:${BLUE_TAG}
+    env_file:
+      - .env.blue
+    ports:
+      - "5001:5000"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    networks:
+      - web-calc-network
+
+  app_green:
+    container_name: web-calc-green
+    build: .
+    image: ${DOCKER_USERNAME}/web-calculator:${GREEN_TAG}
+    env_file:
+      - .env.green
+    ports:
+      - "5002:5000"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    networks:
+      - web-calc-network
+
+networks:
+  web-calc-network:
+    driver: bridge
