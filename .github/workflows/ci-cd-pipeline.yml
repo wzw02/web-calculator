@@ -5,9 +5,14 @@ on:
     branches: [ main, develop ]
   pull_request:
     branches: [ main ]
-  workflow_dispatch:
+  workflow_dispatch:  # 允许手动触发
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
 
 jobs:
+  # CI阶段：测试
   test:
     runs-on: ubuntu-latest
     
@@ -25,18 +30,18 @@ jobs:
         python -m pip install --upgrade pip
         pip install -r requirements.txt
     
-    - name: Run simple calculator tests
+    - name: Run calculator tests
       run: |
         python tests/test_calculator.py
     
-    - name: Run Flask app structure test
+    - name: Run Flask app test
       run: |
         python tests/test_flask_app.py
-    
+  
+  # CI阶段：构建
   build:
     needs: test
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main'
     
     steps:
     - name: Checkout code
@@ -48,16 +53,172 @@ jobs:
     - name: Log in to GitHub Container Registry
       uses: docker/login-action@v3
       with:
-        registry: ghcr.io
+        registry: ${{ env.REGISTRY }}
         username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}
     
-    - name: Build and push
+    - name: Build and push Docker image
       uses: docker/build-push-action@v5
       with:
         context: .
         file: docker/Dockerfile
         push: true
         tags: |
-          ghcr.io/${{ github.repository }}:latest
-          ghcr.io/${{ github.repository }}:${{ github.sha }}
+          ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+          ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+  
+  # CD阶段：本地模拟部署
+  deploy-local-simulation:
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'  # 仅main分支触发部署
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Set up Docker Compose
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y docker-compose-plugin
+    
+    - name: Pull latest image
+      run: |
+        echo "${{ secrets.GITHUB_TOKEN }}" | docker login ${{ env.REGISTRY }} -u ${{ github.actor }} --password-stdin
+        docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+        docker tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }} web-calculator:ci-test
+    
+    - name: Start Blue-Green environment
+      run: |
+        # 启动完整的Blue-Green环境
+        docker-compose -f docker-compose.yml up -d
+        
+        # 等待服务启动
+        echo "等待服务启动..."
+        sleep 15
+        
+        # 检查服务状态
+        docker-compose ps
+    
+    - name: Run deployment simulation test
+      run: |
+        # 创建测试脚本
+        cat > test-deployment.sh << 'EOF'
+        #!/bin/bash
+        set -e
+        
+        echo "=== 开始部署模拟测试 ==="
+        
+        # 测试代理是否工作
+        echo "1. 测试Nginx代理..."
+        if curl -f http://localhost:8080/health; then
+          echo "✅ Nginx代理测试通过"
+        else
+          echo "❌ Nginx代理测试失败"
+          exit 1
+        fi
+        
+        # 测试计算器API
+        echo "2. 测试计算器API..."
+        if curl -s "http://localhost:8080/add/5/3" | grep -q '"result":8'; then
+          echo "✅ 加法API测试通过"
+        else
+          echo "❌ 加法API测试失败"
+          exit 1
+        fi
+        
+        # 测试健康检查
+        echo "3. 测试健康检查端点..."
+        RESPONSE=$(curl -s http://localhost:8080/health)
+        if echo "$RESPONSE" | grep -q '"status":"healthy"'; then
+          echo "✅ 健康检查测试通过"
+        else
+          echo "❌ 健康检查测试失败"
+          exit 1
+        fi
+        
+        # 检查容器状态
+        echo "4. 检查容器健康状态..."
+        BLUE_STATUS=$(docker inspect --format='{{.State.Health.Status}}' web-calculator-blue 2>/dev/null || echo "not running")
+        GREEN_STATUS=$(docker inspect --format='{{.State.Health.Status}}' web-calculator-green 2>/dev/null || echo "not running")
+        
+        echo "   Blue容器状态: $BLUE_STATUS"
+        echo "   Green容器状态: $GREEN_STATUS"
+        
+        # 验证至少有一个环境是健康的
+        if [ "$BLUE_STATUS" = "healthy" ] || [ "$GREEN_STATUS" = "healthy" ]; then
+          echo "✅ 至少有一个环境健康"
+        else
+          echo "❌ 两个环境都不健康"
+          exit 1
+        fi
+        
+        echo "=== 所有部署测试通过 ==="
+        EOF
+        
+        chmod +x test-deployment.sh
+        ./test-deployment.sh
+    
+    - name: Simulate Blue-Green switch
+      run: |
+        echo "=== 模拟Blue-Green切换 ==="
+        
+        # 确定当前活动环境
+        if docker ps --format "table {{.Names}}" | grep -q "web-calculator-blue" && \
+           docker inspect --format='{{.State.Health.Status}}' web-calculator-blue 2>/dev/null | grep -q "healthy"; then
+          echo "当前活动环境: Blue"
+          echo "模拟切换到Green环境..."
+          
+          # 模拟切换：更新Nginx配置指向Green
+          docker exec web-calculator-proxy sh -c "cat > /etc/nginx/conf.d/upstream.conf << 'EOF'
+upstream webcalc_upstream {
+    server app_green:5000 max_fails=1 fail_timeout=5s;
+    server app_blue:5000 backup;
+}
+EOF"
+          
+          # 重新加载Nginx
+          docker exec web-calculator-proxy nginx -s reload
+          sleep 3
+          
+          # 验证切换
+          echo "验证切换..."
+          curl -f http://localhost:8080/health && echo "✅ 切换验证成功"
+          
+        else
+          echo "当前活动环境: Green 或 无健康环境"
+        fi
+    
+    - name: Clean up
+      if: always()
+      run: |
+        echo "清理测试环境..."
+        docker-compose -f docker-compose.yml down -v
+        docker system prune -f
+    
+    - name: Create deployment report
+      run: |
+        echo "# 部署报告" > deployment-report.md
+        echo "" >> deployment-report.md
+        echo "## 部署信息" >> deployment-report.md
+        echo "- 仓库: ${{ github.repository }}" >> deployment-report.md
+        echo "- 提交: ${{ github.sha }}" >> deployment-report.md
+        echo "- 时间: $(date)" >> deployment-report.md
+        echo "- 状态: ✅ 成功" >> deployment-report.md
+        echo "" >> deployment-report.md
+        echo "## 测试结果" >> deployment-report.md
+        echo "- CI测试: ✅ 通过" >> deployment-report.md
+        echo "- 部署测试: ✅ 通过" >> deployment-report.md
+        echo "- Blue-Green切换: ✅ 模拟完成" >> deployment-report.md
+        echo "" >> deployment-report.md
+        echo "## 下一步" >> deployment-report.md
+        echo "本地部署模拟完成。在实际环境中，您需要：" >> deployment-report.md
+        echo "1. 配置远程服务器" >> deployment-report.md
+        echo "2. 设置SSH密钥" >> deployment-report.md
+        echo "3. 更新部署脚本中的服务器地址" >> deployment-report.md
+    
+    - name: Upload deployment report
+      uses: actions/upload-artifact@v4
+      with:
+        name: deployment-report
+        path: deployment-report.md
