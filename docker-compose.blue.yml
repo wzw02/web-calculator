@@ -1,0 +1,13 @@
+version: "3.9"
+
+services:
+  app_blue:
+    environment:
+      - APP_COLOR=blue
+
+  app_green:
+    extends:
+      service: app_blue
+    environment:
+      - APP_COLOR=green
+    profiles: ["inactive"]
