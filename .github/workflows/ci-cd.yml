@@ -37,7 +37,6 @@ jobs:
     
     - name: Run unit tests
       run: |
-        cd src
         pytest tests/unit_tests.py -v --cov=. --cov-report=xml --cov-report=html
     
     - name: Start test container
