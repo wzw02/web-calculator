@@ -1,47 +1,41 @@
-import requests
 import unittest
-import time
+import sys
+import os
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../..'))
+
+from app.server import app
 
 class TestAPI(unittest.TestCase):
-    BASE_URL = "http://localhost:5000"
     
     def setUp(self):
-        # 等待服务启动
-        max_attempts = 10
-        for i in range(max_attempts):
-            try:
-                response = requests.get(f"{self.BASE_URL}/health", timeout=2)
-                if response.status_code == 200:
-                    break
-            except:
-                if i == max_attempts - 1:
-                    raise Exception("服务启动失败")
-                time.sleep(1)
+        # 创建测试客户端
+        self.app = app.test_client()
+        self.app.testing = True
     
     def test_health(self):
-        response = requests.get(f"{self.BASE_URL}/health")
+        response = self.app.get('/health')
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()["status"], "healthy")
+        self.assertEqual(response.json['status'], 'healthy')
     
     def test_add_endpoint(self):
-        response = requests.get(f"{self.BASE_URL}/add/5/3")
+        response = self.app.get('/add/5/3')
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()["result"], 8)
+        self.assertEqual(response.json['result'], 8)
     
     def test_multiply_endpoint(self):
-        response = requests.get(f"{self.BASE_URL}/multiply/4/5")
+        response = self.app.get('/multiply/4/5')
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()["result"], 20)
+        self.assertEqual(response.json['result'], 20)
     
     def test_divide_endpoint(self):
-        response = requests.get(f"{self.BASE_URL}/divide/10/2")
+        response = self.app.get('/divide/10/2')
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()["result"], 5)
+        self.assertEqual(response.json['result'], 5)
     
     def test_divide_by_zero(self):
-        response = requests.get(f"{self.BASE_URL}/divide/5/0")
+        response = self.app.get('/divide/5/0')
         self.assertEqual(response.status_code, 400)
-        self.assertIn("除数不能为零", response.json()["error"])
+        self.assertIn('除数不能为零', response.json['error'])
 
 if __name__ == '__main__':
     unittest.main()
