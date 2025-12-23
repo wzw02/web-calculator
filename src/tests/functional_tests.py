@@ -23,7 +23,9 @@ class WebCalculatorTester:
 
         for attempt in range(1, max_attempts + 1):
             try:
-                response = self.session.get(f"{self.base_url}/health", timeout=5)
+                response = self.session.get(
+                    f"{self.base_url}/health", timeout=5
+                )
                 if response.status_code == 200:
                     data = response.json()
                     if data.get("status") == "healthy":
@@ -114,19 +116,21 @@ class WebCalculatorTester:
                 response = self.session.get(url, timeout=10)
                 if response.status_code >= 400:
                     code = response.status_code
-                    msg = f"{operation}/{a}&{b} 错误处理正确 (状态码: {code})"
-                    print(f"[INFO] ✓ {msg}")
+                    msg = f"{operation}/{a}&{b} 错误处理正确"
+                    print(f"[INFO] ✓ {msg} (状态码: {code})")
                     passed += 1
                 else:
                     code = response.status_code
-                    msg = f"{operation}/{a}&{b} 预期错误但得到状态码: {code}"
-                    print(f"[ERROR] ✗ {msg}")
+                    msg = f"{operation}/{a}&{b} 预期错误但得到状态码"
+                    print(f"[ERROR] ✗ {msg}: {code}")
             except Exception as e:
                 print(f"[ERROR] ✗ {operation}/{a}&{b} 异常: {e}")
 
         # 测试不存在的端点
         try:
-            response = self.session.get(f"{self.base_url}/nonexistent", timeout=10)
+            response = self.session.get(
+                f"{self.base_url}/nonexistent", timeout=10
+            )
             if response.status_code == 404:
                 print("[INFO] ✓ 不存在的端点错误处理正确 (状态码: 404)")
                 passed += 1
