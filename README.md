@@ -6,27 +6,27 @@
 
 ## 🏗️ 项目结构
 web-calculator/
-├── app.py # Flask 主应用
-├── calculator.py # 计算器核心逻辑
-├── requirements.txt # Python 依赖
-├── Dockerfile # Docker 镜像配置
-├── docker-compose.yml # Blue-Green 部署配置
-├── .github/workflows/ # GitHub Actions CI/CD
-│ └── ci-cd.yml
-├── nginx/ # Nginx 反向代理配置
+├── app.py # Flask 主应用/
+├── calculator.py # 计算器核心逻辑/
+├── requirements.txt # Python 依赖/
+├── Dockerfile # Docker 镜像配置//
+├── docker-compose.yml # Blue-Green 部署配置/
+├── .github/workflows/ # GitHub Actions /CI/CD/
+│ └── ci-cd.yml/
+├── nginx/ # Nginx 反向代理配置/
 │ └── conf.d/
-│ └── default.conf
-├── tests/ # 测试文件
+│ └── default.conf/
+├── tests/ # 测试文件/
 │ ├── unit_tests/
-│ │ └── test_calculator.py
+│ │ └── test_calculator.py/
 │ └── functional_tests/
-│ ├── conftest.py
-│ └── test_api.py
-├── scripts/ # 部署脚本
-│ ├── deploy.sh
-│ └── rollback.sh
-├── .gitignore # Git 忽略文件
-└── README.md # 项目文档
+│ ├── conftest.py/
+│ └── test_api.py/
+├── scripts/ # 部署脚本/
+│ ├── deploy.sh/
+│ └── rollback.sh/
+├── .gitignore # Git 忽略文件/
+└── README.md # 项目文档/
 
 ## 🚀 快速开始
 
