@@ -1,0 +1,39 @@
+version: '3.8'
+
+services:
+  
+  app_blue:
+    image: ghcr.io/in-ch369/web-calculator:latest
+    container_name: web-calculator-blue
+    restart: always
+    environment:
+      - FLASK_ENV=production
+    networks:
+      - webcalc-network
+    
+  app_green:
+    image: ghcr.io/in-ch369/web-calculator:latest
+    container_name: web-calculator-green
+    restart: always
+    environment:
+      - FLASK_ENV=production
+    networks:
+      - webcalc-network
+
+  proxy:
+    image: nginx:1.25-alpine
+    container_name: web-calculator-proxy
+    ports:
+      - "8080:80"
+    volumes:
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro
+      - ./nginx/templates:/etc/nginx/templates:ro
+    depends_on:
+      - app_blue
+      - app_green
+    networks:
+      - webcalc-network
+
+networks:
+  webcalc-network:
+    driver: bridge
